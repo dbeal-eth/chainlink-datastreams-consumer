@@ -1,402 +1,459 @@
-import { WebSocket as _WebSocket } from 'ws'
-import { AbiCoder } from 'ethers'
-import { hmac } from '@noble/hashes/hmac'
-import { sha256 } from '@noble/hashes/sha256'
-import { base16, bytes } from '@scure/base'
+import { WebSocket as _WebSocket } from "ws";
+import { AbiCoder } from "ethers";
+import { hmac } from "@noble/hashes/hmac";
+import { sha256 } from "@noble/hashes/sha256";
+import { base16, bytes } from "@scure/base";
 
-const encoder = new TextEncoder()
+const encoder = new TextEncoder();
 
-const WebSocket = _WebSocket || globalThis.WebSocket
+const WebSocket = _WebSocket || globalThis.WebSocket;
 
 class EventEmitter {
-
-  listeners = {}
+  listeners = {};
 
   on = (event, callback) => {
-    this.listeners[event] ??= new Set()
-    this.listeners[event].add(callback)
-    return this
-  }
+    this.listeners[event] ??= new Set();
+    this.listeners[event].add(callback);
+    return this;
+  };
 
   off = (event, callback) => {
     if (this.listeners[event]) {
-      this.listeners[event].delete(callback)
+      this.listeners[event].delete(callback);
     }
-    return this
-  }
+    return this;
+  };
 
   once = (event, callback) => {
     const onceCallback = (...args) => {
-      callback(...args)
-      this.off(event, onceCallback)
-    }
-    this.on(event, onceCallback)
-    return this
-  }
-
+      callback(...args);
+      this.off(event, onceCallback);
+    };
+    this.on(event, onceCallback);
+    return this;
+  };
 }
 
 export default class LOLSDK extends EventEmitter {
-
-  constructor ({
-    hostname,
-    wsHostname,
-    clientID,
-    clientSecret,
-    feeds
-  } = {}) {
-    super()
-    if (!clientID) throw new Error('Client ID not passed to LOLSDK constructor.')
-    Object.assign(this, { hostname, wsHostname, clientID })
-    this.setClientSecret(clientSecret)
-    this.setConnectedFeeds(feeds)
+  constructor({ hostname, wsHostname, clientID, clientSecret, feeds } = {}) {
+    super();
+    if (!clientID)
+      throw new Error("Client ID not passed to LOLSDK constructor.");
+    Object.assign(this, { hostname, wsHostname, clientID });
+    this.setClientSecret(clientSecret);
+    this.setConnectedFeeds(feeds);
   }
 
   // Set and hide secret
-  setClientSecret (secret) {
-    if (!secret) console.warn('Setting empty client secret.')
-    Object.defineProperty(this, 'clientSecret', {
+  setClientSecret(secret) {
+    if (!secret) console.warn("Setting empty client secret.");
+    Object.defineProperty(this, "clientSecret", {
       enumerable: true,
       configurable: true,
-      get () {
-        return secret
+      get() {
+        return secret;
       },
-      set (secret) {
-        this.setClientSecret(secret)
-        return secret
-      }
-    })
+      set(secret) {
+        this.setClientSecret(secret);
+        return secret;
+      },
+    });
   }
 
-  fetchFeed = ({ timestamp, feed }) => this.fetch('/api/v1/reports', {
-    timestamp, feedID: feed,
-  }).then(
-    Report.fromAPIResponse
-  )
+  fetchFeed = ({ timestamp, feed }) =>
+    this.fetch("/api/v1/reports", {
+      timestamp,
+      feedID: feed,
+    }).then(Report.fromAPIResponse);
 
-  fetchFeeds = ({ timestamp, feeds }) => this.fetch('/api/v1/reports/bulk', {
-    timestamp, feedIDs: feeds.join(','),
-  }).then(
-    Report.fromBulkAPIResponse
-  )
+  fetchFeeds = ({ timestamp, feeds }) =>
+    this.fetch("/api/v1/reports/bulk", {
+      timestamp,
+      feedIDs: feeds.join(","),
+    }).then(Report.fromBulkAPIResponse);
 
-  async fetch (path, params = {}) {
+  async fetch(path, params = {}) {
     if (!this.hostname) {
-      throw new Error('Hostname was not passed to LOLSDK constructor.')
+      throw new Error("Hostname was not passed to LOLSDK constructor.");
     }
-    const url = new URL(path, `https://${this.hostname}`)
-    url.search = new URLSearchParams(params).toString()
-    const headers = this.generateHeaders('GET', path, url.search);
+    const url = new URL(path, `https://${this.hostname}`);
+    url.search = new URLSearchParams(params).toString();
+    const headers = this.generateHeaders("GET", path, url.search);
     const response = await fetch(url, { headers });
-    const data = await response.json()
-    return data
+    const data = await response.json();
+    return data;
   }
 
-  generateHeaders (method, path, search, timestamp = +new Date()) {
+  generateHeaders(method, path, search, timestamp = +new Date()) {
     if (!this.clientID) {
-      throw new Error('Client ID was not passed to LOLSDK constructor')
+      throw new Error("Client ID was not passed to LOLSDK constructor");
     }
     if (!this.clientSecret) {
-      throw new Error('client secret not set')
+      throw new Error("client secret not set");
     }
-    if (!search.startsWith('?')) {
-      search = `?${search}`
+    if (!search.startsWith("?")) {
+      search = `?${search}`;
     }
     const signed = [
       method,
       `${path}${search}`,
-      base16.encode(sha256.create().update('').digest()).toLowerCase(),
+      base16.encode(sha256.create().update("").digest()).toLowerCase(),
       this.clientID,
-      String(timestamp)
-    ]
+      String(timestamp),
+    ];
     return {
-      'Authorization': this.clientID,
-      'X-Authorization-Timestamp': timestamp.toString(),
-      'X-Authorization-Signature-SHA256': base16.encode(
-        hmac(sha256, encoder.encode(this.clientSecret), signed.join(' '))
-      ).toLowerCase()
-    }
+      Authorization: this.clientID,
+      "X-Authorization-Timestamp": timestamp.toString(),
+      "X-Authorization-Signature-SHA256": base16
+        .encode(
+          hmac(sha256, encoder.encode(this.clientSecret), signed.join(" ")),
+        )
+        .toLowerCase(),
+    };
   }
 
   disconnect = () => {
-    const { ws } = this
+    const { ws } = this;
     if (ws) {
-      ws.off('message', this.decodeAndEmit)
+      ws.off("message", this.decodeAndEmit);
       if (ws.readyState === WebSocket.CONNECTING) {
-        ws.on('open', () => ws.close())
+        ws.on("open", () => ws.close());
       } else if (ws.readyState === WebSocket.OPEN) {
-        ws.close()
+        ws.close();
       }
-      this.ws = null
+      this.ws = null;
     } else {
-      console.warn('Already disconnected.')
+      console.warn("Already disconnected.");
     }
-  }
+  };
 
-  decodeAndEmit = message => {
-    if (this.listeners['report']) {
-      for (const callback of this.listeners['report']) {
-        callback.call(this, Report.fromSocketMessage(message))
+  decodeAndEmit = (message) => {
+    if (this.listeners["report"]) {
+      for (const callback of this.listeners["report"]) {
+        callback.call(this, Report.fromSocketMessage(message));
       }
     }
-  }
+  };
 
-  subscribeTo = feeds => {
-    if (typeof feeds === 'string') {
-      feeds = [feeds]
+  subscribeTo = (feeds) => {
+    if (typeof feeds === "string") {
+      feeds = [feeds];
     }
     for (const feed of new Set(feeds)) {
       if (!this.feeds.has(feed)) {
-        return this.setConnectedFeeds([...this.feeds, feeds])
+        return this.setConnectedFeeds([...this.feeds, feeds]);
       }
     }
-  }
+  };
 
-  unsubscribeFrom = feeds => {
-    if (typeof feeds === 'string') {
-      feeds = [feeds]
+  unsubscribeFrom = (feeds) => {
+    if (typeof feeds === "string") {
+      feeds = [feeds];
     }
-    let changed = false
-    const updatedFeeds = new Set(this.feeds)
+    let changed = false;
+    const updatedFeeds = new Set(this.feeds);
     for (const feed of new Set(feeds)) {
       if (updatedFeeds.has(feed)) {
-        updatedFeeds.delete(feed)
-        changed = true
+        updatedFeeds.delete(feed);
+        changed = true;
       }
     }
     if (changed) {
-      return this.setConnectedFeeds(updatedFeeds)
+      return this.setConnectedFeeds(updatedFeeds);
     }
-  }
+  };
 
-  setConnectedFeeds (feeds) {
+  setConnectedFeeds(feeds) {
     if (!this.wsHostname) {
-      throw new Error('WebSocket hostname was not passed to LOLSDK constructor.')
+      throw new Error(
+        "WebSocket hostname was not passed to LOLSDK constructor.",
+      );
     }
-    return new Promise((resolve, reject)=>{
-      feeds = feeds || []
+    return new Promise((resolve, reject) => {
+      feeds = feeds || [];
       const readOnly = () => {
-        throw new Error('The set of feeds is read-only; clone it to mutate.')
-      }
+        throw new Error("The set of feeds is read-only; clone it to mutate.");
+      };
       feeds = Object.assign(new Set(feeds), {
-        add: readOnly, delete: readOnly, clear: readOnly
-      })
+        add: readOnly,
+        delete: readOnly,
+        clear: readOnly,
+      });
       if (!this.feeds || !compareSets(this.feeds, feeds)) {
-        Object.defineProperty(this, 'feeds', {
+        Object.defineProperty(this, "feeds", {
           enumerable: true,
           configurable: true,
-          get () {
-            return feeds
+          get() {
+            return feeds;
           },
-          set (feeds) {
-            this.setConnectedFeeds(feeds)
-            return feeds
-          }
-        })
+          set(feeds) {
+            this.setConnectedFeeds(feeds);
+            return feeds;
+          },
+        });
         if (feeds.size < 1) {
-          if (this.ws) this.disconnect()
-          return resolve()
+          if (this.ws) this.disconnect();
+          return resolve();
         }
         if (feeds.size > 0) {
-          const path = '/api/v1/ws'
-          const search = new URLSearchParams({ feedIDs: [...feeds].join(',') }).toString()
-          const url = Object.assign(new URL(path, `wss://${this.wsHostname}`), { search })
-          const headers = this.generateHeaders('GET', path, search)
-          if (this.ws) this.disconnect()
-          const ws = this.ws = new WebSocket(url.toString(), { headers })
-          const onerror = error => {
-            unbind()
-            reject(error)
-          }
+          const path = "/api/v1/ws";
+          const search = new URLSearchParams({
+            feedIDs: [...feeds].join(","),
+          }).toString();
+          const url = Object.assign(new URL(path, `wss://${this.wsHostname}`), {
+            search,
+          });
+          const headers = this.generateHeaders("GET", path, search);
+          if (this.ws) this.disconnect();
+          const ws = (this.ws = new WebSocket(url.toString(), { headers }));
+          const onerror = (error) => {
+            unbind();
+            reject(error);
+          };
           const onopen = () => {
-            unbind()
-            resolve(this.ws)
-          }
+            unbind();
+            resolve(this.ws);
+          };
           const unbind = () => {
-            ws.off('error', onerror)
-            ws.off('open', onopen)
-          }
-          ws.on('error', onerror)
-          ws.on('open', onopen)
-          ws.on('message', this.decodeAndEmit)
+            ws.off("error", onerror);
+            ws.off("open", onopen);
+          };
+          ws.on("error", onerror);
+          ws.on("open", onopen);
+          ws.on("message", this.decodeAndEmit);
         }
       }
-    })
+    });
   }
 }
 
-const compareSets = (xs, ys) => xs.size === ys.size && [...xs].every((x) => ys.has(x));
+const compareSets = (xs, ys) =>
+  xs.size === ys.size && [...xs].every((x) => ys.has(x));
 
 export class Report {
-
-  static fromAPIResponse = response => {
+  static fromAPIResponse = (response) => {
     try {
-      if (response.error) throw new Error(response.error)
-      const { report } = response
-      if (report.fullReport.startsWith('0x')) {
-        report.fullReport = this.decodeFullReportHex(report.fullReport)
+      if (response.error) throw new Error(response.error);
+      const { report } = response;
+      if (report.fullReport.startsWith("0x")) {
+        report.decodedReport = this.decodeFullReportHex(report.fullReport);
       } else {
-        report.fullReport = this.decodeFullReportBase64(report.fullReport)
+        report.decodedReport = this.decodeFullReportBase64(report.fullReport);
       }
-      return new this(report)
+      return new this(report);
     } catch (error) {
-      const message = `failed to parse API response: ${error.message}`
-      console.debug('Report.fromAPIResponse error:', { message, response, error })
-      throw Object.assign(new Error(message), { response, error })
+      const message = `failed to parse API response: ${error.message}`;
+      console.debug("Report.fromAPIResponse error:", {
+        message,
+        response,
+        error,
+      });
+      throw Object.assign(new Error(message), { response, error });
     }
-  }
+  };
 
-  static fromBulkAPIResponse = response => {
+  static fromBulkAPIResponse = (response) => {
     try {
-      if (response.error) throw new Error(response.error)
-      const reports = {}
+      if (response.error) throw new Error(response.error);
+      const reports = {};
       for (let report of response.reports) {
-        report = this.fromAPIResponse({ report })
-        reports[report.feedId] = report
+        report = this.fromAPIResponse({ report });
+        reports[report.feedId] = report;
       }
-      return reports
+      return reports;
     } catch (error) {
-      const message = `failed to parse bulk API response: ${error.message}`
-      console.debug('Report.fromBulkAPIResponse error:', { message, response, error })
-      throw Object.assign(new Error(message), { response, error })
+      const message = `failed to parse bulk API response: ${error.message}`;
+      console.debug("Report.fromBulkAPIResponse error:", {
+        message,
+        response,
+        error,
+      });
+      throw Object.assign(new Error(message), { response, error });
     }
-  }
+  };
 
-  static fromSocketMessage = message => {
+  static fromSocketMessage = (message) => {
     try {
-      const { report: { feedID, fullReport } } = JSON.parse(message)
+      const {
+        report: { fullReport },
+      } = JSON.parse(message);
       return new this({
-        fullReport: this.decodeFullReportHex(fullReport)
-      })
+        decodedReport: this.decodeFullReportHex(fullReport),
+        fullReport,
+      });
     } catch (error) {
-      const message = `failed to parse socket message: ${error.message}`
-      console.debug('Report.fromSocketMessage error:', { message, response, error })
-      throw Object.assign(new Error(message), { response, error })
+      const message = `failed to parse socket message: ${error.message}`;
+      console.debug("Report.fromSocketMessage error:", {
+        message,
+        response,
+        error,
+      });
+      throw Object.assign(new Error(message), { response, error });
     }
-  }
+  };
 
-  static decodeFullReportBase64 = base64String => {
-    const decoded = this.decodeABIResponseBase64(this.fullReportAbiSchema, base64String)
-    decoded.reportBlob = this.decodeReportBlobHex(decoded.reportBlob)
-    return decoded
-  }
+  static decodeFullReportBase64 = (base64String) => {
+    const decoded = this.decodeABIResponseBase64(
+      this.fullReportAbiSchema,
+      base64String,
+    );
+    decoded.reportBlob = this.decodeReportBlobHex(decoded.reportBlob);
+    return decoded;
+  };
 
   static decodeABIResponseBase64 = (schema, data) =>
-    this.decodeABIResponseHex(schema, bytes('base64', data))
+    this.decodeABIResponseHex(schema, bytes("base64", data));
 
   static decodeABIResponseHex = (schema, data) => {
-    const decoded = AbiCoder.defaultAbiCoder().decode(schema, data)
+    const decoded = AbiCoder.defaultAbiCoder().decode(schema, data);
     if (schema.length !== decoded.length) {
       throw new Error(
-        `length of schema (${schema.length}) and decoded data (${decoded.length}) should be equal`
-      )
+        `length of schema (${schema.length}) and decoded data (${decoded.length}) should be equal`,
+      );
     }
-    const result = {}
+    const result = {};
     for (const index in schema) {
-      result[schema[index].name] = decoded[index]
+      result[schema[index].name] = decoded[index];
     }
-    return result
-  }
+    return result;
+  };
 
-  static decodeFullReportHex = hexString => {
-    const decoded = this.decodeABIResponseHex(this.fullReportAbiSchema, hexString)
-    decoded.reportBlob = this.decodeReportBlobHex(decoded.reportBlob)
-    return decoded
-  }
+  static decodeFullReportHex = (hexString) => {
+    const decoded = this.decodeABIResponseHex(
+      this.fullReportAbiSchema,
+      hexString,
+    );
+    decoded.reportBlob = this.decodeReportBlobHex(decoded.reportBlob);
+    return decoded;
+  };
 
   static fullReportAbiSchema = [
-    {name: "reportContext", type: "bytes32[3]"},
-    {name: "reportBlob",    type: "bytes"},
-    {name: "rawRs",         type: "bytes32[]"},
-    {name: "rawSs",         type: "bytes32[]"},
-    {name: "rawVs",         type: "bytes32"},
-  ]
+    { name: "reportContext", type: "bytes32[3]" },
+    { name: "reportBlob", type: "bytes" },
+    { name: "rawRs", type: "bytes32[]" },
+    { name: "rawSs", type: "bytes32[]" },
+    { name: "rawVs", type: "bytes32" },
+  ];
 
-  static decodeReportBlobHex = hexString => {
-    const {feedId} = this.decodeABIResponseHex([ {name: 'feedId', type: 'bytes32'} ], hexString)
-    const version = this.feedIdToVersion(feedId)
-    const decoded = this.decodeABIResponseHex(this.reportBlobAbiSchema[version], hexString)
-    return { version, decoded }
-  }
+  static decodeReportBlobHex = (hexString) => {
+    const { feedId } = this.decodeABIResponseHex(
+      [{ name: "feedId", type: "bytes32" }],
+      hexString,
+    );
+    const version = this.feedIdToVersion(feedId);
+    const decoded = this.decodeABIResponseHex(
+      this.reportBlobAbiSchema[version],
+      hexString,
+    );
+    return { version, decoded };
+  };
 
   static reportBlobAbiSchema = {
     v1: [
-      {name: "feedId",                type: "bytes32"},
-      {name: "observationsTimestamp", type: "uint32"},
-      {name: "benchmarkPrice",        type: "int192"},
-      {name: "bid",                   type: "int192"},
-      {name: "ask",                   type: "int192"},
-      {name: "currentBlockNum",       type: "uint64"},
-      {name: "currentBlockHash",      type: "bytes32"},
-      {name: "validFromBlockNum",     type: "uint64"},
-      {name: "currentBlockTimestamp", type: "uint64"},
+      { name: "feedId", type: "bytes32" },
+      { name: "observationsTimestamp", type: "uint32" },
+      { name: "benchmarkPrice", type: "int192" },
+      { name: "bid", type: "int192" },
+      { name: "ask", type: "int192" },
+      { name: "currentBlockNum", type: "uint64" },
+      { name: "currentBlockHash", type: "bytes32" },
+      { name: "validFromBlockNum", type: "uint64" },
+      { name: "currentBlockTimestamp", type: "uint64" },
     ],
     v2: [
-      {name: "feedId",                type: "bytes32"},
-      {name: "validFromTimestamp",    type: "uint32"},
-      {name: "observationsTimestamp", type: "uint32"},
-      {name: "nativeFee",             type: "uint192"},
-      {name: "linkFee",               type: "uint192"},
-      {name: "expiresAt",             type: "uint32"},
-      {name: "benchmarkPrice",        type: "int192"},
+      { name: "feedId", type: "bytes32" },
+      { name: "validFromTimestamp", type: "uint32" },
+      { name: "observationsTimestamp", type: "uint32" },
+      { name: "nativeFee", type: "uint192" },
+      { name: "linkFee", type: "uint192" },
+      { name: "expiresAt", type: "uint32" },
+      { name: "benchmarkPrice", type: "int192" },
     ],
     v3: [
-      {name: "feedId",                type: "bytes32"},
-      {name: "validFromTimestamp",    type: "uint32"},
-      {name: "observationsTimestamp", type: "uint32"},
-      {name: "nativeFee",             type: "uint192"},
-      {name: "linkFee",               type: "uint192"},
-      {name: "expiresAt",             type: "uint32"},
-      {name: "benchmarkPrice",        type: "int192"},
-      {name: "bid",                   type: "int192"},
-      {name: "ask",                   type: "int192"},
-    ]
-  }
+      { name: "feedId", type: "bytes32" },
+      { name: "validFromTimestamp", type: "uint32" },
+      { name: "observationsTimestamp", type: "uint32" },
+      { name: "nativeFee", type: "uint192" },
+      { name: "linkFee", type: "uint192" },
+      { name: "expiresAt", type: "uint32" },
+      { name: "benchmarkPrice", type: "int192" },
+      { name: "bid", type: "int192" },
+      { name: "ask", type: "int192" },
+    ],
+  };
 
-  static feedIdToVersion = feedId => {
-    if (!(feedId.startsWith('0x') && feedId.length === 66)) {
-      throw Object.assign(new Error(
-        'feed ID must be 32 bytes hex string starting with "0x"'
-      ), {
-        feedId
-      })
+  static feedIdToVersion = (feedId) => {
+    if (!(feedId.startsWith("0x") && feedId.length === 66)) {
+      throw Object.assign(
+        new Error('feed ID must be 32 bytes hex string starting with "0x"'),
+        {
+          feedId,
+        },
+      );
     }
     if (legacyV1FeedIDs.has(feedId)) {
-      return 'v1'
+      return "v1";
     }
-    const decoded = feedId.slice(2).match(/.{1,2}/g).map((byte) => parseInt(byte, 16))
-    const version = new DataView(Uint8Array.from(decoded).buffer).getUint16(0)
+    const decoded = feedId
+      .slice(2)
+      .match(/.{1,2}/g)
+      .map((byte) => parseInt(byte, 16));
+    const version = new DataView(Uint8Array.from(decoded).buffer).getUint16(0);
     switch (version) {
-      case 1: return 'v1'
-      case 2: return 'v2'
-      case 3: return 'v3'
-      default: throw new Error(`Unsupported version ${version} from feed ID ${feedId}`)
+      case 1:
+        return "v1";
+      case 2:
+        return "v2";
+      case 3:
+        return "v3";
+      default:
+        throw new Error(
+          `Unsupported version ${version} from feed ID ${feedId}`,
+        );
     }
-  }
+  };
 
-  constructor ({ feedID, validFromTimestamp, observationsTimestamp, fullReport }) {
-    const { reportContext, reportBlob: { version, decoded }, rawRs, rawSs, rawVs } = fullReport
+  constructor({
+    feedID,
+    validFromTimestamp,
+    observationsTimestamp,
+    decodedReport,
+    fullReport,
+  }) {
+    const {
+      reportContext,
+      reportBlob: { version, decoded },
+      rawRs,
+      rawSs,
+      rawVs,
+    } = decodedReport;
     Object.assign(this, {
-      validFromTimestamp, observationsTimestamp, reportContext, rawRs, rawSs, rawVs,
-    })
-    Object.defineProperty(this, 'version', {
+      validFromTimestamp,
+      observationsTimestamp,
+      reportContext,
+      rawRs,
+      rawSs,
+      rawVs,
+      fullReport,
+    });
+    Object.defineProperty(this, "version", {
       enumerable: false,
       configurable: false,
-      get () { return version }
-    })
-    for (const {name} of Report.reportBlobAbiSchema[this.version]) {
-      this[name] = decoded[name]
+      get() {
+        return version;
+      },
+    });
+    for (const { name } of Report.reportBlobAbiSchema[this.version]) {
+      this[name] = decoded[name];
     }
   }
 
-  get [Symbol.toStringTag] () {
-    return this.version
+  get [Symbol.toStringTag]() {
+    return this.version;
   }
-
 }
 
 export const legacyV1FeedIDs = new Set([
-
   // Arbitrum mainnet (prod)
   "0xb43dc495134fa357725f93539511c5a4febeadf56e7c29c96566c825094f0b20",
   "0xe65b31c6d5b9bdff43a8194dc5b2edc6914ddbc5e9f9e9521f605fc3738fabf5",
@@ -449,6 +506,5 @@ export const legacyV1FeedIDs = new Set([
   "0xf753e1201d54ac94dfd9334c542562ff7e42993419a661261d010af0cbfd4e34",
   "0x2489ce4577e814d6794218a13ef3c04cac976f991305400a4c0a1ddcffb90357",
   "0xa5b07943b89e2c278fc8a2754e2854316e03cb959f6d323c2d5da218fb6b0ff8",
-  "0x1c2c0dfac0eb2aae2c05613f0d677daae164cdd406bd3dd6153d743302ce56e8"
-
-])
+  "0x1c2c0dfac0eb2aae2c05613f0d677daae164cdd406bd3dd6153d743302ce56e8",
+]);

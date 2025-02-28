@@ -32,6 +32,7 @@ export type Report = {
   feedId:                  string
   observationsTimestamp:   bigint
   benchmarkPrice:          bigint
+  fullReport:              string
 } & (
   {
     version:               'v1'
